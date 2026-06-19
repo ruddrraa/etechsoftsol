@@ -1,0 +1,26 @@
+@layer base {
+  :root {
+    /* MunshiJi Color System */
+    --primary: #F97316;       /* Orange */
+    --primary-hover: #EA580C;
+    
+    --background: #FAFAFA;
+    --surface: #FFFFFF;
+    --surface-secondary: #F1F5F9;
+    
+    --text-primary: #0F172A;
+    --text-secondary: #64748B;
+    
+    --border: #E2E8F0;
+    
+    --success: #10B981;
+    --warning: #F59E0B;
+    --danger: #EF4444;
+
+    /* Radius System */
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-card: 16px;
+  }
+}
