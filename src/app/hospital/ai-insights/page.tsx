@@ -19,11 +19,22 @@ export default function AiInsightsPage() {
     setPrompt("");
 
     try {
-      // In a real scenario, we'd fetch actual context data here before calling Groq
-      const contextData = { 
-        hospitalScope: "General Analytics",
-        lastUpdate: new Date().toISOString()
-      };
+      // Fetch actual dynamic data for context
+      let contextData = {};
+      try {
+        const dashRes = await fetch("/api/v1/dashboard/dynamic");
+        if (dashRes.ok) {
+          const dashJson = await dashRes.json();
+          contextData = {
+            kpis: dashJson.kpis,
+            schema: dashJson.schema,
+            charts: dashJson.charts,
+            lastUpdate: new Date().toISOString()
+          };
+        }
+      } catch (e) {
+        console.warn("Failed to fetch dashboard context", e);
+      }
 
       const res = await fetch("/api/v1/ai/groq", {
         method: "POST",

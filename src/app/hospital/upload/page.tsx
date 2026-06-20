@@ -111,7 +111,7 @@ export default function UploadPage() {
           className={`relative overflow-hidden rounded-2xl border-2 border-dashed transition-all duration-200 ${
             isDragging
               ? "border-primary bg-primary/10 shadow-[inset_0px_0px_20px_rgba(249,115,22,0.15)]"
-              : "border-border glass-panel hover:bg-[#111111] hover:border-primary/50"
+              : "border-border glass-panel hover:bg-surface-secondary hover:border-primary/50"
           }`}
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
@@ -199,10 +199,10 @@ export default function UploadPage() {
         </h4>
         <ul className="space-y-3">
           {[
-            "Ensure the file contains the standard headers: Patient ID, Patient Name, Department, Admission Date, Discharge Date, Revenue.",
-            "Do not include merged cells in the data rows.",
-            "Dates must be in DD-MM-YYYY or MM/DD/YYYY format.",
-            "Revenue values should be numeric without currency symbols."
+            "Ensure the first row of your file contains column headers.",
+            "Include a Date column (e.g., 'Report_Date', 'Date') for time-series tracking.",
+            "Include numeric columns (e.g., 'Count', 'Revenue') for dashboard KPIs.",
+            "Standard Users can upload 1 report per day. Admins can upload multiple reports."
           ].map((guideline, i) => (
             <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
               <CheckCircle2 className="size-4 text-emerald-500 shrink-0 mt-0.5" />

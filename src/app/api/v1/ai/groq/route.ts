@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
 You provide intelligent, actionable insights based on hospital data.
 Current context data provided by the user:
 ${JSON.stringify(contextData || {})}
-Please answer the user's prompt based on this context. Keep it concise, professional, and actionable.`;
+Please answer the user's prompt based strictly on this context. DO NOT hallucinate or invent numbers. If the data does not contain the answer, state that clearly. Keep it concise, professional, and actionable.`;
 
     const groqResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -31,7 +31,7 @@ Please answer the user's prompt based on this context. Keep it concise, professi
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: "llama3-8b-8192", // High capability Groq model
+        model: "llama-3.1-8b-instant", // High capability free Groq model
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: prompt }

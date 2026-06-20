@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
       .limit(20)
       .lean();
 
-    return NextResponse.json({ success: true, snapshots });
+    return NextResponse.json({ success: true, snapshots, role: session.role });
   } catch (err) {
     console.error("[Snapshots GET Error]", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

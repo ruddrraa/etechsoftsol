@@ -57,6 +57,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    await connectDB();
+
+    // 1. Enforce Daily Upload Limit for standard users
+    if (actorRole !== "HOSPITAL_ADMIN") {
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+      const existingUpload = await Upload.findOne({ tenantId, createdAt: { $gte: startOfDay } });
+      if (existingUpload) {
+        return NextResponse.json(
+          { error: "Daily upload limit reached. Only Hospital Admins can upload multiple reports per day." },
+          { status: 403 }
+        );
+      }
+    }
+
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
 
@@ -71,12 +86,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Only CSV and Excel files are supported." }, { status: 400 });
     }
 
-    await connectDB();
-
     const buffer = Buffer.from(await file.arrayBuffer());
     const r2Key = generateR2Key(tenantId, file.name);
 
-    // 1. Upload to R2
+    // 2. Upload to R2
     let uploadedKey = "";
     try {
       if (process.env.R2_ACCOUNT_ID) {
@@ -89,7 +102,7 @@ export async function POST(request: NextRequest) {
       uploadedKey = "r2-failed/" + file.name;
     }
 
-    // 2. Parse file
+    // 3. Parse file
     let rows: any[] = [];
     if (isCsv) {
       const csvString = buffer.toString("utf-8");
@@ -110,7 +123,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "File is empty" }, { status: 400 });
     }
 
-    // 3. Create Upload Record
+    // 4. Schema Detection
+    const detectedFields: Array<{ name: string; type: "number" | "date" | "category" | "string" }> = [];
+    if (rows.length > 0) {
+      const firstRow = rows[0];
+      for (const key of Object.keys(firstRow)) {
+        const val = firstRow[key];
+        let type: "number" | "date" | "category" | "string" = "string";
+        if (typeof val === "number" || !isNaN(Number(val))) {
+          type = "number";
+        } else if (typeof val === "string") {
+          const lowerKey = key.toLowerCase();
+          if (lowerKey.includes("date") || lowerKey.includes("time") || !isNaN(Date.parse(val))) {
+            type = "date";
+          } else {
+            type = "category"; // Default to category for string columns to enable distribution charts
+          }
+        }
+        detectedFields.push({ name: key, type });
+      }
+    }
+
+    // 5. Create Upload Record
     const upload = await Upload.create({
       tenantId,
       uploadedBy: actorId,
@@ -118,7 +152,7 @@ export async function POST(request: NextRequest) {
       fileType: "csv",
       fileSizeBytes: file.size,
       r2Key: uploadedKey,
-      r2Url: uploadedKey, // We never store the public URL, just the key
+      r2Url: uploadedKey,
       status: "importing",
       validation: {
         rowCount: rows.length,
@@ -127,76 +161,55 @@ export async function POST(request: NextRequest) {
         warnings: [],
         duplicateCount: 0,
       },
+      fileSchema: {
+        fields: detectedFields
+      }
     });
 
-    // 4. Process Rows & Insert to MongoDB
+    // 6. Process Rows & Insert to MongoDB
     let inserted = 0;
     let skipped = 0;
-    const departments = new Set<string>();
-
     const recordsToInsert = [];
     const parseErrors: string[] = [];
 
+    // Identify the primary date field if it exists
+    const dateField = detectedFields.find(f => f.type === "date")?.name;
+
     for (const [index, row] of rows.entries()) {
       try {
-        // Map headers. We expect either Patient-level data or Aggregated data.
-        const department = row["Department"] || row["department"] || "General";
-        const reportDateRaw = row["Report Date"] || row["Report_Date"] || row["reportDate"] || row["report_date"] || new Date().toISOString();
-        
-        // Aggregated fields
-        const totalCountRaw = row["Total_Count"] || row["totalCount"] || row["Total Count"];
-        const maleCountRaw = row["Male_Count"] || row["maleCount"] || row["Male Count"];
-        const femaleCountRaw = row["Female_Count"] || row["femaleCount"] || row["Female Count"];
+        // Sanitize row values (e.g., parse numbers)
+        const sanitizedData: Record<string, any> = {};
+        for (const field of detectedFields) {
+          if (field.type === "number") {
+            sanitizedData[field.name] = parseFloat(String(row[field.name] || "0"));
+          } else {
+            sanitizedData[field.name] = row[field.name];
+          }
+        }
 
-        // Patient level fields
-        const patientIdRaw = row["Patient ID"] || row["patientId"] || row["patient_id"];
-        const patientName = row["Patient Name"] || row["patientName"] || row["patient_name"];
-        const revenueRaw = row["Revenue"] || row["revenue"];
-        const status = row["Status"] || row["status"] || "completed";
-
-        const totalCount = totalCountRaw ? parseInt(String(totalCountRaw), 10) : 1;
-        const maleCount = maleCountRaw ? parseInt(String(maleCountRaw), 10) : 0;
-        const femaleCount = femaleCountRaw ? parseInt(String(femaleCountRaw), 10) : 0;
-        const revenue = parseFloat(String(revenueRaw || "0"));
-        
-        const departmentStr = String(department);
-
-        // If we don't have a patient ID but we have aggregated data, we generate a hash based ID for the category
-        const patientId = patientIdRaw || `AGG-${departmentStr.substring(0,3).toUpperCase()}-${Date.now()}-${Math.floor(Math.random()*1000)}`;
-
-        departments.add(departmentStr);
-
-        const contentHash = crypto
-          .createHash("sha256")
-          .update(`${tenantId}-${patientId}-${reportDateRaw}-${departmentStr}-${revenue}-${totalCount}`)
-          .digest("hex");
-
+        const reportDateRaw = dateField ? row[dateField] : new Date().toISOString();
         let parsedDate = new Date(reportDateRaw);
         if (isNaN(parsedDate.getTime())) {
-          // Attempt parsing DD/MM/YYYY
           const parts = String(reportDateRaw).split('/');
           if (parts.length === 3) {
             parsedDate = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
           }
         }
         if (isNaN(parsedDate.getTime())) {
-          throw new Error(`Invalid date format for: ${reportDateRaw}`);
+          parsedDate = new Date(); // Fallback
         }
+
+        const contentHash = crypto
+          .createHash("sha256")
+          .update(`${tenantId}-${JSON.stringify(sanitizedData)}`)
+          .digest("hex");
 
         recordsToInsert.push({
           tenantId,
           uploadId: upload._id,
           reportDate: parsedDate,
-          patientId: String(patientId),
-          patientName: patientName ? String(patientName) : undefined,
-          department: departmentStr,
-          revenue: isNaN(revenue) ? 0 : revenue,
-          status: String(status),
-          totalCount: isNaN(totalCount) ? 1 : totalCount,
-          maleCount: isNaN(maleCount) ? 0 : maleCount,
-          femaleCount: isNaN(femaleCount) ? 0 : femaleCount,
+          data: sanitizedData,
           contentHash,
-          metadata: row,
         });
       } catch (e: any) {
         skipped++;
@@ -206,13 +219,11 @@ export async function POST(request: NextRequest) {
 
     let bulkWriteError = null;
 
-    // Bulk insert with unordered to ignore duplicates
     if (recordsToInsert.length > 0) {
       try {
         const result = await ReportRecord.insertMany(recordsToInsert, { ordered: false });
         inserted = result.length;
       } catch (error: any) {
-        // If it's a bulk write error (code 11000 duplicate key), we can still get the inserted count
         if (error.code === 11000 && error.insertedDocs) {
           inserted = error.insertedDocs.length;
           skipped += (recordsToInsert.length - inserted);
@@ -229,7 +240,6 @@ export async function POST(request: NextRequest) {
 
     upload.status = "completed";
     upload.importStats = { inserted, skipped, updated: 0 };
-    upload.validation.departments = Array.from(departments);
     if (parseErrors.length > 0) upload.validation.warnings.push(...parseErrors);
     if (bulkWriteError) upload.validation.warnings.push(bulkWriteError);
     upload.completedAt = new Date();

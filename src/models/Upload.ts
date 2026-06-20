@@ -24,6 +24,12 @@ export interface IUpload extends Document {
     skipped: number;
     updated: number;
   };
+  fileSchema?: {
+    fields: Array<{
+      name: string;
+      type: "number" | "date" | "category" | "string";
+    }>;
+  };
   completedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
@@ -56,6 +62,14 @@ const UploadSchema = new Schema<IUpload>(
       inserted: Number,
       skipped: Number,
       updated: Number,
+    },
+    fileSchema: {
+      fields: [
+        {
+          name: String,
+          type: { type: String, enum: ["number", "date", "category", "string"] },
+        },
+      ],
     },
     completedAt: Date,
   },

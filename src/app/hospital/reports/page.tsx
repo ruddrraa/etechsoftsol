@@ -21,7 +21,8 @@ interface Report {
 }
 
 export default function ReportsPage() {
-  const [reports, setReports] = useState<Report[]>([]);
+  const [reports, setReports] = useState<any[]>([]);
+  const [schema, setSchema] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
@@ -33,6 +34,7 @@ export default function ReportsPage() {
       const res = await fetch("/api/v1/reports?limit=1000");
       if (!res.ok) throw new Error("Failed to fetch");
       const data = await res.json();
+      setSchema(data.schema || []);
       setReports(data.reports ?? []);
     } catch {
       setError(true);
@@ -42,76 +44,52 @@ export default function ReportsPage() {
   };
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchReports();
   }, []);
 
   const handleExportCsv = () => {
-    window.location.href = "/api/v1/reports/export?format=csv";
-    toast.success("Download started");
+    if (!reports || reports.length === 0) return;
+    const headers = Object.keys(reports[0]).join(",");
+    const rows = reports.map((row: any) => 
+      Object.values(row).map(val => `"${val}"`).join(",")
+    );
+    const csvContent = [headers, ...rows].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", "patient_reports.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
-  const columns: ColumnDef<Report>[] = [
-    {
-      accessorKey: "reportDate",
-      header: "Date",
-      cell: ({ row }) => {
-        const date = row.getValue("reportDate") as string;
-        return date ? format(new Date(date), "MMM dd, yyyy") : "N/A";
-      },
-    },
-    {
-      accessorKey: "patientId",
-      header: "Patient ID",
-    },
-    {
-      accessorKey: "patientName",
-      header: "Patient Name",
-      cell: ({ row }) => (
-        <span className="font-medium text-foreground">
-          {row.getValue("patientName")}
-        </span>
-      ),
-    },
-    {
-      accessorKey: "department",
-      header: "Department",
-    },
-    {
-      accessorKey: "doctor",
-      header: "Doctor",
-    },
-    {
-      accessorKey: "revenue",
-      header: "Revenue",
-      cell: ({ row }) => {
-        const val = row.getValue("revenue") as number;
-        return val ? `₹${val.toLocaleString("en-IN")}` : "₹0";
-      },
-    },
-    {
-      accessorKey: "status",
-      header: "Status",
-      cell: ({ row }) => {
-        const status = (row.getValue("status") as string)?.toLowerCase();
-        let bg = "bg-slate-500/10 text-slate-400";
-        if (status === "discharged") bg = "bg-emerald-500/10 text-emerald-400";
-        if (status === "admitted") bg = "bg-[#06B6D4]/10 text-[#06B6D4]";
-        if (status === "pending") bg = "bg-amber-500/10 text-amber-400";
-
-        return (
-          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium capitalize ${bg}`}>
-            {status || "Unknown"}
-          </span>
-        );
-      },
-    },
-  ];
+  const columns: ColumnDef<any>[] = schema.map((field: any) => ({
+    accessorKey: field.name,
+    header: field.name.replace(/_/g, " "),
+    cell: ({ row }: any) => {
+      const val = row.getValue(field.name);
+      return <span>{val !== null && val !== undefined ? String(val) : "-"}</span>;
+    }
+  }));
 
   if (error) {
     return (
       <div className="mx-auto max-w-[1200px]">
         <PageError onRetry={fetchReports} />
+      </div>
+    );
+  }
+
+  if (!loading && (!schema || schema.length === 0)) {
+    return (
+      <div className="mx-auto max-w-[1400px] space-y-6">
+        <div>
+          <h1 className="text-xl font-semibold font-[family-name:var(--font-geist)] text-foreground">Patient Reports</h1>
+        </div>
+        <div className="rounded-[var(--radius-card)] border border-dashed border-border bg-surface px-6 py-16 text-center">
+          <p className="text-sm text-text-secondary mb-4">No data available. Upload a report first.</p>
+        </div>
       </div>
     );
   }
@@ -136,7 +114,7 @@ export default function ReportsPage() {
         columns={columns}
         data={reports}
         loading={loading}
-        searchPlaceholder="Search patients, doctors..."
+        searchPlaceholder="Search reports..."
         onExportCsv={handleExportCsv}
       />
     </div>

@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
     await connectDB();
 
     const query: Record<string, unknown> = { tenantId };
-    if (department) query.department = department;
+    if (department) query["data.department"] = department;
 
     const reports = await ReportRecord.find(query)
       .sort({ reportDate: -1 })
@@ -27,13 +27,13 @@ export async function GET(request: NextRequest) {
       const headers = ["Date", "Patient ID", "Patient Name", "Department", "Doctor", "Revenue", "Pending Bill", "Status"];
       const rows = reports.map((r) => [
         r.reportDate ? new Date(r.reportDate).toLocaleDateString("en-IN") : "",
-        r.patientId ?? "",
-        r.patientName ?? "",
-        r.department ?? "",
-        r.doctor ?? "",
-        r.revenue ?? 0,
-        r.pendingBill ?? 0,
-        r.status ?? "",
+        r.data?.patientId ?? "",
+        r.data?.patientName ?? "",
+        r.data?.department ?? "",
+        r.data?.doctor ?? "",
+        r.data?.revenue ?? 0,
+        r.data?.pendingBill ?? 0,
+        r.data?.status ?? "",
       ]);
 
       const csv = [headers.join(","), ...rows.map((r) => r.map((v) => `"${v}"`).join(","))].join("\n");
